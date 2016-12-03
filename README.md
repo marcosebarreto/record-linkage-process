@@ -9,6 +9,8 @@ This project exposes the process of linking records, known as Record Linkage, be
 
 * CUDA C code:
 
+To run cuda c code, two prerequisites are necessary: your computer must have some **nvidia device** and must have installed **NVIDIA CUDA Compiler** ([NVCC](http://docs.nvidia.com/cuda/cuda-installation-guide-linux/#axzz4Rnk5ZlXr)) on the machine. 
+
 ```sh
 $ cd cuda-c
 $ make

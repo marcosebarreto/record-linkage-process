@@ -17,10 +17,10 @@ LIB_PATHS=-L$(MKL_PATH_LIB) -L$(LIB_DIR)
 NVCC=nvcc -ccbin=gcc-4.8
 CC=gcc
 
-sources.cu= linkage.cu
-sources.c= 
+sources.cu= linkage.c
+sources.c=
 
-CFLAGS = --compiler-options -fno-strict-aliasing -D_FORCE_INLINES -DUNIX -DADD_ -arch sm_20 -O3 -lm 
+CFLAGS = --compiler-options -fno-strict-aliasing -D_FORCE_INLINES -DUNIX -DADD_ -arch sm_20 -O3 -lm
 
 libs = $(LIB_PATHS) -lcublas -lcudart $(MKL_LIBS_64) -lpthread
 
@@ -41,8 +41,7 @@ main.o:add.cu
 	$(NVCC) -Xcompiler -fopenmp -lgomp $(CFLAGS) -c $^
 
 %.o:%.c
-	$(CC) $(CFLAGS) -c $^ 
+	$(CC) $(CFLAGS) -c $^
 
 clean:
 	rm -f linkage *.txt $(objects) *~
-

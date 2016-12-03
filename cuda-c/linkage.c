@@ -8,6 +8,7 @@
 #define NCOL 101
 
 void fill_matrix(int matrix[][NCOL], int pos, char *line);
+int get_num_of_lines(FILE *fp);
 
 int main(int argc, char const *argv[]) {
     FILE *base_a, *base_b;
@@ -20,11 +21,7 @@ int main(int argc, char const *argv[]) {
 
     // ------------------------------ OPERATIONS WITH BASE A ------------------------------ //
     // getting line quantity
-    fgets(line, 255, base_a);
-    while (!feof(base_a)) {
-        nlines_a++;
-        fgets(line, 255, base_a);
-    }
+    nlines_a = get_num_of_lines(base_a);
     int matrixA[nlines_a][NCOL];
 
     // getting line by line to insert into matrixA
@@ -51,11 +48,7 @@ int main(int argc, char const *argv[]) {
     pos_to_insert = 0;
 
     // getting line quantity
-    fgets(line, 255, base_b);
-    while (!feof(base_b)) {
-        nlines_b++;
-        fgets(line, 255, base_b);
-    }
+    nlines_b = get_num_of_lines(base_b);
     int matrixB[nlines_b][NCOL];
 
     // getting line by line to inset into matrixB
@@ -106,4 +99,18 @@ void fill_matrix(int matrix[][NCOL], int pos, char *line) {
             j++;
         }
     }
+}
+
+int get_num_of_lines(FILE *fp) {
+    int lines = 0;
+    char line[256];
+
+    fgets(line, 255, fp);
+    while (!feof(fp)) {
+        lines++;
+        fgets(line, 255, fp);
+    }
+
+    printf("num lines: %d\n", lines);
+    return lines;
 }

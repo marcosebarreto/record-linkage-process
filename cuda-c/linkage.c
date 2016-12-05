@@ -8,10 +8,10 @@
 #define NCOL 101
 
 
-void fill_matrix(int matrix[][NCOL], int pos, char *line);
+void fill_matrix(int *matrix, int pos, char *line);
 int get_num_of_lines(FILE *fp);
-void process_file(FILE *fp, int matrix[][NCOL]);
-void print_matrix(int matrix[][NCOL], int nlines);
+void process_file(FILE *fp, int *matrix);
+void print_matrix(int *matrix, int nlines);
 
 
 int main(int argc, char const *argv[]) {
@@ -25,7 +25,7 @@ int main(int argc, char const *argv[]) {
     // ------- OPERATIONS WITH BASE A ------- //
     // getting line quantity
     nlines_a = get_num_of_lines(base_a);
-    int matrixA[nlines_a][NCOL];
+    int *matrixA = (int *)malloc(nlines_a * NCOL * sizeof(int));
 
     // processing base_a to fill matrixA
     printf("base_a\n");
@@ -35,42 +35,17 @@ int main(int argc, char const *argv[]) {
     // ------- OPERATIONS WITH BASE B ------- //
     // getting line quantity
     nlines_b = get_num_of_lines(base_b);
-    int matrixB[nlines_b][NCOL];
+    // int matrixB[nlines_b][NCOL];
+    int *matrixB = (int *)malloc(nlines_b * NCOL * sizeof(int));
 
     printf("base_b\n");
     process_file(base_b, matrixB);
     print_matrix(matrixB, nlines_b);
 
+
     fclose(base_a);
     fclose(base_b);
-
     return 0;
-}
-
-
-// function to split a line and to insert the elements in matrix
-void fill_matrix(int matrix[][NCOL], int pos, char *line) {
-    int i, j = 0, before_v = 1;
-    char c, id[10];
-
-    for (i = 0; i < strlen(line); i++) {
-        c = line[i];
-        if (before_v == 1) {
-            if (c == ';') {
-                id[i] = '\0';
-                matrix[pos][j] = atoi(id);
-                j++;
-                before_v = 0;
-            }
-            else {
-                id[i] = c;
-            }
-        }
-        else {
-            matrix[pos][j] = line[i] - '0';
-            j++;
-        }
-    }
 }
 
 
@@ -91,7 +66,7 @@ int get_num_of_lines(FILE *fp) {
 
 
 // function to get line by line of the file
-void process_file(FILE *fp, int matrix[][NCOL]) {
+void process_file(FILE *fp, int *matrix) {
     char line[256];
     int pos_to_insert = 0;
 
@@ -101,20 +76,42 @@ void process_file(FILE *fp, int matrix[][NCOL]) {
     fgets(line, 255, fp);
     while (!feof(fp)) {
         line[strlen(line) - 1] = '\0';
-        fill_matrix(matrix, pos_to_insert, line);
         // printf("%s\n", line);
+        fill_matrix(matrix, pos_to_insert, line);
+
         pos_to_insert++;
         fgets(line, 255, fp);
     }
 }
 
 
-void print_matrix(int matrix[][NCOL], int nlines) {
+// function to split a line and to insert the elements in matrix
+void fill_matrix(int *matrix, int pos, char *line) {
+    int i = 0, j = 0;
+    char c, id[10];
+
+    do {
+        c = line[j];
+        id[j] = c;
+        j++;
+    } while (c != ';');
+    id[j-1] = '\0';
+    // printf("ncol * pos: %d\n", NCOL * pos);
+    matrix[NCOL * pos] = atoi(id);
+
+    for (i = 1; i < NCOL; i++) {
+        matrix[NCOL * pos + i] = line[j] - '0';
+        j++;
+    }
+}
+
+
+void print_matrix(int *matrix, int nlines) {
     int i, j;
 
     for (i = 0; i < nlines; i++) {
         for (j = 0; j < NCOL; j++) {
-            printf("%d", matrix[i][j]);
+            printf("%d", matrix[i * NCOL + j]);
         }
         printf("\n");
     }

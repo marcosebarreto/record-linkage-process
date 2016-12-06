@@ -42,9 +42,25 @@ int main(int argc, char const *argv[]) {
     process_file(base_b, matrixB);
     print_matrix(matrixB, nlines_b);
 
+    // ---------- CUDA OPERATIONS ---------- //
+    int *matrixA_d, *matrixB_d;
+
+    // allocating device memory (to put matrix) using a cuda function
+    cudaMalloc((int **)&matrixA_d, nlines_a * NCOL * sizeof(int));
+    cudaMalloc((int **)&matrixB_d, nlines_b * NCOL * sizeof(int));
+
+    // copying host memory to device
+    cudaMemcpy(matrixA_d, matrixA, nlines_a * NCOL * sizeof(int), cudaMemcpyHostToDevice);
+    cudaMemcpy(matrixB_d, matrixB, nlines_b * NCOL * sizeof(int), cudaMemcpyHostToDevice);
+
+
+    // Deallocating device memory
+    cudaFree(matrixA_d);
+    cudaFree(matrixB_d);
 
     fclose(base_a);
     fclose(base_b);
+
     return 0;
 }
 

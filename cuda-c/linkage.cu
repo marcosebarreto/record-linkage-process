@@ -10,11 +10,11 @@
 
 
 void fill_matrix(int *matrix, int pos, char *line);
-int get_num_of_lines(FILE *fp);
 void process_file(FILE *fp, int *matrix);
 void print_matrix(int *matrix, int nlines);
+int get_num_of_lines(FILE *fp);
 __global__ void kernel(int *matrixA, int *matrixB, int nlines_a, int nlines_b);
-__device__ float dice(int *bloomA, int *bloomB);
+__device__ void dice(int *bloomA, int *bloomB);
 
 
 int main(int argc, char const *argv[]) {
@@ -51,7 +51,7 @@ int main(int argc, char const *argv[]) {
     // ------------------------- CUDA OPERATIONS ------------------------ //
     int *matrixA_d, *matrixB_d;
 
-    // allocating device memory using a cuda function
+    // allocating device memory using cuda function
     cudaMalloc((int **)&matrixA_d, nlines_a * NCOL * sizeof(int));
     cudaMalloc((int **)&matrixB_d, nlines_b * NCOL * sizeof(int));
 
@@ -149,6 +149,7 @@ void print_matrix(int *matrix, int nlines) {
 }
 
 
+// kernel function to get bloom filters for matrixA and matrixB using NVIDIA device
 __global__ void kernel(int *matrixA, int *matrixB, int nlines_a, int nlines_b){
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     // int j = blockIdx.y * blockDim.y + threadIdx.y;
@@ -175,6 +176,22 @@ __global__ void kernel(int *matrixA, int *matrixB, int nlines_a, int nlines_b){
 
 
 // device function to calculate dice coefficient using bloom filter
-__device__ float dice(int *bloomA, int *bloomB) {
-    printf("teste\n");
+__device__ void dice(int *bloomA, int *bloomB) {
+    float a = 0, b = 0, h = 0;
+    float dice;
+    int i;
+
+    for (int i = 0; i < 100; i++) {
+        if (bloomA[i] == 1) {
+            a++;
+            if (bloomB[i] == 1)
+                h++;
+        }
+        if (bloomB[i] == 1) {
+            b++;
+        }
+    }
+    dice = ((h * 2.0) / (a + b)) * 10000;
+    printf("%.1f\n", dice);
+
 }

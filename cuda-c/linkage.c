@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <cuda.h>
 
 #define NCOL 101
 
@@ -12,40 +13,45 @@ void fill_matrix(int *matrix, int pos, char *line);
 int get_num_of_lines(FILE *fp);
 void process_file(FILE *fp, int *matrix);
 void print_matrix(int *matrix, int nlines);
+__global__ void kernel(int *matrixA, int *matrixB, int nlines_a, int nlines_b);
+__device__ float dice(int *bloomA, int *bloomB);
 
 
 int main(int argc, char const *argv[]) {
     FILE *base_a, *base_b;
-    int nlines_a = 0, nlines_b = 0, i, j;
+    int nlines_a = 0, nlines_b = 0;
 
     // opening large base (base_a) and small base (base_b)
+    printf("[LOADING DATABASES ... ]\n");
     base_a = fopen("base_a10.bloom", "r");
     base_b = fopen("base_b10.bloom", "r");
 
-    // ------- OPERATIONS WITH BASE A ------- //
+    // --------------------- OPERATIONS WITH BASE A --------------------- //
     // getting line quantity
+    printf("[GETTING NUMBER LINES FOR BASE A ... ]\n");
     nlines_a = get_num_of_lines(base_a);
     int *matrixA = (int *)malloc(nlines_a * NCOL * sizeof(int));
 
     // processing base_a to fill matrixA
-    printf("base_a\n");
+    printf("[PROCESSING BASE A ... ]\n");
     process_file(base_a, matrixA);
     print_matrix(matrixA, nlines_a);
 
-    // ------- OPERATIONS WITH BASE B ------- //
+    // --------------------- OPERATIONS WITH BASE B --------------------- //
     // getting line quantity
+    printf("[GETTING NUMBER LINES FOR BASE B ... ]\n");
     nlines_b = get_num_of_lines(base_b);
-    // int matrixB[nlines_b][NCOL];
     int *matrixB = (int *)malloc(nlines_b * NCOL * sizeof(int));
 
-    printf("base_b\n");
+    // processing base_b to fill matrixB
+    printf("[PROCESSING BASE B ... ]\n");
     process_file(base_b, matrixB);
     print_matrix(matrixB, nlines_b);
 
-    // ---------- CUDA OPERATIONS ---------- //
+    // ------------------------- CUDA OPERATIONS ------------------------ //
     int *matrixA_d, *matrixB_d;
 
-    // allocating device memory (to put matrix) using a cuda function
+    // allocating device memory using a cuda function
     cudaMalloc((int **)&matrixA_d, nlines_a * NCOL * sizeof(int));
     cudaMalloc((int **)&matrixB_d, nlines_b * NCOL * sizeof(int));
 
@@ -53,8 +59,11 @@ int main(int argc, char const *argv[]) {
     cudaMemcpy(matrixA_d, matrixA, nlines_a * NCOL * sizeof(int), cudaMemcpyHostToDevice);
     cudaMemcpy(matrixB_d, matrixB, nlines_b * NCOL * sizeof(int), cudaMemcpyHostToDevice);
 
+    // kernel operations
+    printf("[OPERATING AT KERNEL CUDA ... ]\n");
+    kernel<<<nlines_a, 1>>>(matrixA_d, matrixB_d, nlines_a, nlines_b);
 
-    // Deallocating device memory
+    // deallocating device memory
     cudaFree(matrixA_d);
     cudaFree(matrixB_d);
 
@@ -125,6 +134,11 @@ void fill_matrix(int *matrix, int pos, char *line) {
 void print_matrix(int *matrix, int nlines) {
     int i, j;
 
+    // for (i = 0; i < NCOL * nlines; i += 101) {
+    //     printf("%d | ", matrix[i]);
+    // }
+    // printf("\n");
+
     for (i = 0; i < nlines; i++) {
         for (j = 0; j < NCOL; j++) {
             printf("%d", matrix[i * NCOL + j]);
@@ -132,4 +146,35 @@ void print_matrix(int *matrix, int nlines) {
         printf("\n");
     }
     printf("\n");
+}
+
+
+__global__ void kernel(int *matrixA, int *matrixB, int nlines_a, int nlines_b){
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    // int j = blockIdx.y * blockDim.y + threadIdx.y;
+
+    int bloomA[100], bloomB[100];
+
+    if (i < nlines_a) {
+        // printf("%d ", matrixA[i * NCOL]);
+
+        // getting bloom filter for each matrixA register
+        for (int j = 1; j < 101; j++) {
+            bloomA[j - 1] = matrixA[i * NCOL + j];
+        }
+
+        // getting bloom filter for each matrixB register
+        for (int k = 0; k < nlines_b; k++) {
+            for (int l = 1; l < 101; l++) {
+                bloomB[l - 1] = matrixB[k * NCOL + l];
+            }
+            dice(bloomA, bloomB);
+        }
+    }
+}
+
+
+// device function to calculate dice coefficient using bloom filter
+__device__ float dice(int *bloomA, int *bloomB) {
+    printf("teste\n");
 }

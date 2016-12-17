@@ -14,7 +14,7 @@ To run cuda c code, two prerequisites are necessary: your computer must have som
 ```sh
 $ cd cuda-c
 $ make
-$ ./linkage
+$ ./linkage <num_threads_per_block>
 ```
 
 [MIC]: <http://www.intel.com/content/www/us/en/architecture-and-technology/many-integrated-core/intel-many-integrated-core-architecture.html>

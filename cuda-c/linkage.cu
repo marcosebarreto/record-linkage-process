@@ -5,7 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <cuda.h>
-
+#include <time.h>
 #define NCOL 101
 
 
@@ -14,20 +14,20 @@ int get_num_of_lines(FILE *fp);
 void process_file(FILE *fp, int *matrix);
 void print_matrix(int *matrix, int nlines);
 __global__ void kernel(int *matrixA, int *matrixB, int nlines_a, int nlines_b);
-__device__ void dice(int *bloomA, int *bloomB);
+__device__ float dice(int *bloomA, int *bloomB);
 
 
 int main(int argc, char const *argv[]) {
     FILE *base_a, *base_b;
     int nlines_a = 0, nlines_b = 0;
     int threads_per_block = atoi(argv[1]); // 512
-    cudaEvent_t start, stop;
-    float elapsedTime;
+    clock_t start, end;
+    double cpu_time_used;
 
     // opening large base (base_a) and small base (base_b)
     printf("[LOADING DATABASES ... ]\n");
-    base_a = fopen("base_a10k.bloom", "r");
-    base_b = fopen("base_b10.bloom", "r");
+    base_a = fopen("base_a5k.bloom", "r");
+    base_b = fopen("base_a7k.bloom", "r");
 
     // --------------------- OPERATIONS WITH BASE A --------------------- //
     // getting line quantity
@@ -38,7 +38,7 @@ int main(int argc, char const *argv[]) {
     // processing base_a to fill matrixA
     printf("[PROCESSING BASE A ... ]\n");
     process_file(base_a, matrixA);
-    print_matrix(matrixA, nlines_a);
+//    print_matrix(matrixA, nlines_a);
 
     // --------------------- OPERATIONS WITH BASE B --------------------- //
     // getting line quantity
@@ -49,10 +49,9 @@ int main(int argc, char const *argv[]) {
     // processing base_b to fill matrixB
     printf("[PROCESSING BASE B ... ]\n");
     process_file(base_b, matrixB);
-    print_matrix(matrixB, nlines_b);
+  //  print_matrix(matrixB, nlines_b);
 
-    cudaEventCreate(&start);
-    cudaEventRecord(start,0);
+    start = clock();
     // ------------------------- CUDA OPERATIONS ------------------------ //
     int *matrixA_d, *matrixB_d;
 
@@ -69,20 +68,17 @@ int main(int argc, char const *argv[]) {
     dim3 dimGrid = (nlines_a / threads_per_block);
     dim3 dimBlock = threads_per_block;
     kernel<<<dimGrid, dimBlock>>>(matrixA_d, matrixB_d, nlines_a, nlines_b);
-
+    cudaDeviceSynchronize();    
     // deallocating device memory
     cudaFree(matrixA_d);
     cudaFree(matrixB_d);
 
     fclose(base_a);
     fclose(base_b);
-
-    cudaEventCreate(&stop);
-    cudaEventRecord(stop,0);
-    cudaEventSynchronize(stop);
-    cudaEventElapsedTime(&elapsedTime, start,stop);
-    // printf("%d\t%f\n",nlines_a, t2-t1);
-    printf("->Tamanho do problema:\t%d\n->Threads por bloco:\t%d \n->Blocos:\t%d \n->Tempo:\t%f\n",nlines_a, threads_per_block ,nlines_a/threads_per_block, elapsedTime);
+   end = clock();
+   cpu_time_used = ((double) (end - start)) / CLOCKS_PER_SEC;
+//    printf("%d\t%f\n",nlines_a, t2-t1);
+    printf("->Tamanho do problema:\t%d\n->Threads por bloco:\t%d \n->Blocos:\t%d \n->Tempo:\t%f\n",nlines_a, threads_per_block ,nlines_a/threads_per_block, cpu_time_used);
 
     return 0;
 }
@@ -92,14 +88,12 @@ int main(int argc, char const *argv[]) {
 int get_num_of_lines(FILE *fp) {
     int lines = 0;
     char line[256];
-
-    fgets(line, 255, fp);
+    if(!fgets(line, 255, fp)) printf("fp = NULL");
     while (!feof(fp)) {
         lines++;
-        fgets(line, 255, fp);
+	if(!fgets(line, 255, fp)) break;
     }
 
-    // printf("num lines: %d\n", lines);
     return lines;
 }
 
@@ -112,14 +106,13 @@ void process_file(FILE *fp, int *matrix) {
     rewind(fp);
 
     // getting line by line to insert into matrix
-    fgets(line, 255, fp);
+    if(!fgets(line, 255, fp)) printf("fp = NULL");
     while (!feof(fp)) {
         line[strlen(line) - 1] = '\0';
-        // printf("%s\n", line);
         fill_matrix(matrix, pos_to_insert, line);
 
         pos_to_insert++;
-        fgets(line, 255, fp);
+	if(!fgets(line, 255, fp)) break;
     }
 }
 
@@ -165,8 +158,8 @@ void print_matrix(int *matrix, int nlines) {
 
 __global__ void kernel(int *matrixA, int *matrixB, int nlines_a, int nlines_b){
     int i = blockIdx.x * blockDim.x + threadIdx.x;
-    printf("I = %d - blockID.x= %d e blockId.y = %d -- blockDim.x = %d e blockDim.y = %d -- threadIdx.x = %d e threadIdx.y = %d\n", i, blockIdx.x, blockIdx.y, blockDim.x, blockDim.y, threadIdx.x, threadIdx.y);
-    // int j = blockIdx.y * blockDim.y + threadIdx.y;
+//    printf("I = %d - blockID.x= %d e blockId.y = %d -- blockDim.x = %d e blockDim.y = %d -- threadIdx.x = %d e threadIdx.y = %d\n", i, blockIdx.x, blockIdx.y, blockDim.x, blockDim.y, threadIdx.x, threadIdx.y);  
+  // int j = blockIdx.y * blockDim.y + threadIdx.y;
 
     int bloomA[100], bloomB[100];
 
@@ -183,19 +176,22 @@ __global__ void kernel(int *matrixA, int *matrixB, int nlines_a, int nlines_b){
             for (int l = 1; l < 101; l++) {
                 bloomB[l - 1] = matrixB[k * NCOL + l];
             }
-            dice(bloomA, bloomB);
+              dice(bloomA, bloomB);
         }
     }
 }
 
 
 // device function to calculate dice coefficient using bloom filter
-__device__ void dice(int *bloomA, int *bloomB) {
+//__device__ float dice(int *bloomA, int *bloomB) {
+//    printf("teste\n");
+//}
+
+__device__ float dice(int *bloomA, int *bloomB) {
     float a = 0, b = 0, h = 0;
-    float dice;
     int i;
 
-    for (int i = 0; i < 100; i++) {
+    for (i = 0; i < 100; i++) {
         if (bloomA[i] == 1) {
             a++;
             if (bloomB[i] == 1)
@@ -205,6 +201,9 @@ __device__ void dice(int *bloomA, int *bloomB) {
             b++;
         }
     }
-    dice = ((h * 2.0) / (a + b)) * 10000;
-    printf("%.1f\n", dice);
+    float dice = ((h * 2.0) / (a + b)) * 10000;
+    return dice;
+
+    //printf("%.1f\n", dice);
+
 }

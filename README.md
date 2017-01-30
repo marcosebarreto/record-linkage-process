@@ -2,6 +2,7 @@
 
 This project exposes the process of linking records, known as Record Linkage, between large databases using heterogeneous computing systems that offer high computional power, such as:
 
+- [OpenMP]
 - [CUDA C]
 - [MIC]
 
@@ -13,9 +14,11 @@ To run cuda c code, two prerequisites are necessary: your computer must have som
 
 ```sh
 $ cd cuda-c
+$ make clean
 $ make
-$ ./linkage <num_threads_per_block>
+$ ./linkage <num_threads_per_block> <larger_file>
 ```
 
+[OpenMP]: <http://www.openmp.org/>
 [MIC]: <http://www.intel.com/content/www/us/en/architecture-and-technology/many-integrated-core/intel-many-integrated-core-architecture.html>
 [CUDA C]: <http://www.nvidia.com/object/cuda_home_new.html>

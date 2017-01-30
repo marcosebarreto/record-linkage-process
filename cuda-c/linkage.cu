@@ -1,5 +1,20 @@
-// Linkage Process using CUDA C API
-// Authors: Clicia Santos Pinto and Pedro Marcelino Mendes Novaes Melo
+/*
+@(#)File:           $linkage.cu$
+@(#)Version:        $v2$
+@(#)Last changed:   $Date: 2017/01/20 09:05:00 $
+@(#)Purpose:        Probabilistic linkage for 1GPU
+@(#)Author:         Pedro Marcelino Mendes Novaes Melo
+                    Clicia Santos Pinto
+                    Murilo Boratto
+@(#)Usage:
+ (*) Hotocompile:   make clean; make
+ (*) Hotoexecute:  ./object <threads_per_block> <larger_file>
+ (*) Hotoexecute:  ./linkage 16 1000
+@(#)Comment:
+ (*) Pass arguments (name of file *.bloom) for command-line interface
+ (*) Get time with omp_get_wtime() in seconds
+ (*) Inaccurate Divide dimGrid
+*/
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -13,9 +28,9 @@
 __device__ int contador = 0;
 
 void fill_matrix(int *matrix, int pos, char *line);
-int get_num_of_lines(FILE *fp);
 void process_file(FILE *fp, int *matrix);
 void print_matrix(int *matrix, int nlines);
+int get_num_of_lines(FILE *fp);
 __global__ void kernel(int *matrixA, int *matrixB, int nlines_a, int nlines_b);
 __device__ float dice(int *bloomA, int *bloomB);
 
@@ -29,41 +44,38 @@ int main(int argc, char const *argv[]) {
     strcpy(file1, "base_");
     strcat(file1, argv[2]);
     strcat(file1, "K.bloom");
-    // strcpy(file1, argv[1]);
-    // strcpy(file2, argv[2]);
 
     int nlines_a = 0, nlines_b = 0;
-    // int threads_per_block = 16;
     int threads_per_block = atoi(argv[1]);
 
     // opening large base (base_a) and small base (base_b)
-    // printf("[LOADING DATABASES ... ]\n");
+    printf("[LOADING DATABASES ... ]\n");
     base_a = fopen(file1, "r");
     base_b = fopen("base_1000K.bloom", "r");
 
     // --------------------- OPERATIONS WITH BASE A --------------------- //
     // getting line quantity
-    // printf("[GETTING NUMBER LINES FOR BASE A ... ]\n");
+    printf("[GETTING NUMBER LINES FOR BASE A ... ]\n");
     nlines_a = get_num_of_lines(base_a);
     int *matrixA = (int *)malloc(nlines_a * NCOL * sizeof(int));
 
     // processing base_a to fill matrixA
-    // printf("[PROCESSING BASE A ... ]\n");
+    printf("[PROCESSING BASE A ... ]\n");
     process_file(base_a, matrixA);
     // print_matrix(matrixA, nlines_a);
 
+
     // --------------------- OPERATIONS WITH BASE B --------------------- //
     // getting line quantity
-    // printf("[GETTING NUMBER LINES FOR BASE B ... ]\n");
+    printf("[GETTING NUMBER LINES FOR BASE B ... ]\n");
     nlines_b = get_num_of_lines(base_b);
     int *matrixB = (int *)malloc(nlines_b * NCOL * sizeof(int));
 
     // processing base_b to fill matrixB
-    // printf("[PROCESSING BASE B ... ]\n");
+    printf("[PROCESSING BASE B ... ]\n");
     process_file(base_b, matrixB);
     // print_matrix(matrixB, nlines_b);
 
-    // printf("line_a=%d\tline_b=%d\n", nlines_a, nlines_b);
 
     // ------------------------- CUDA OPERATIONS ------------------------ //
     int *matrixA_d, *matrixB_d;
@@ -77,7 +89,7 @@ int main(int argc, char const *argv[]) {
     cudaMemcpy(matrixB_d, matrixB, nlines_b * NCOL * sizeof(int), cudaMemcpyHostToDevice);
 
     // kernel operations
-    // printf("[OPERATING AT KERNEL CUDA ... ]\n");
+    printf("[OPERATING AT KERNEL CUDA ... ]\n");
     dim3 dimGrid = (int) ceil( (int) nlines_a / (int) threads_per_block);
     dim3 dimBlock = threads_per_block;
     kernel<<<dimGrid, dimBlock>>>(matrixA_d, matrixB_d, nlines_a, nlines_b);
@@ -97,9 +109,8 @@ int main(int argc, char const *argv[]) {
 
     t2 = omp_get_wtime();
 
-    // printf("%d\t%d\t%d\t%f\n", nlines_a, threads_per_block, nlines_a/threads_per_block, t2-t1);
-    int tam_prob = atoi(argv[2]);
-    printf("%d\t%f\n", (tam_prob * 1000), (t2-t1));
+    int length_problem = atoi(argv[2]);
+    printf("%d\t%f\n", (length_problem * 1000), (t2-t1));
 
     return 0;
 }
@@ -182,6 +193,8 @@ void print_matrix(int *matrix, int nlines) {
 }
 
 
+// Kernel CUDA to compute linkage between matrixA and matrixB using a dice
+// function as similarity measure
 __global__ void kernel(int *matrixA, int *matrixB, int nlines_a, int nlines_b){
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     // printf("I = %d - blockID.x= %d e blockId.y = %d -- blockDim.x = %d e blockDim.y = %d -- threadIdx.x = %d e threadIdx.y = %d\n", i, blockIdx.x, blockIdx.y, blockDim.x, blockDim.y, threadIdx.x, threadIdx.y);

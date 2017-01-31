@@ -9,7 +9,7 @@
 @(#)Usage:
  (*) Hotocompile:   make clean; make
  (*) Hotoexecute:  ./object <threads_per_block> <larger_file>
- (*) Hotoexecute:  ./linkage 16 1000
+ (*) Hotoexecute:  ./linkage 16 10
 @(#)Comment:
  (*) Pass arguments (name of file *.bloom) for command-line interface
  (*) Get time with omp_get_wtime() in seconds
@@ -31,6 +31,7 @@ void fill_matrix(int *matrix, int pos, char *line);
 void process_file(FILE *fp, int *matrix);
 void print_matrix(int *matrix, int nlines);
 int get_num_of_lines(FILE *fp);
+int *divide(int *source_matrix, int lower_threshold, int upper_threshold);
 __global__ void kernel(int *matrixA, int *matrixB, int nlines_a, int nlines_b);
 __device__ float dice(int *bloomA, int *bloomB);
 
@@ -63,6 +64,13 @@ int main(int argc, char const *argv[]) {
     printf("[PROCESSING BASE A ... ]\n");
     process_file(base_a, matrixA);
     // print_matrix(matrixA, nlines_a);
+
+    // testing divide function
+    int *test;
+    int lower_threshold = 0;
+    int upper_threshold = 5;
+    test = divide(matrixA, lower_threshold, upper_threshold);
+    print_matrix(test, (upper_threshold - lower_threshold));
 
 
     // --------------------- OPERATIONS WITH BASE B --------------------- //
@@ -172,6 +180,23 @@ void fill_matrix(int *matrix, int pos, char *line) {
         matrix[NCOL * pos + i] = line[j] - '0';
         j++;
     }
+}
+
+
+// function to divide matrixA into a smaller matrix, given a lower threshold
+// and a upper threshold. Each one will be executed on a GPU
+int *divide(int *source_matrix, int lower_threshold, int upper_threshold) {
+    static int *destination_matrix;
+    destination_matrix = (int *)malloc((upper_threshold - lower_threshold) * NCOL * sizeof(int));
+
+    int i, j = 0;
+
+    for (i = (lower_threshold * NCOL); i < (upper_threshold * NCOL); i++) {
+        destination_matrix[j] = source_matrix[i];
+        j++;
+    }
+
+    return destination_matrix;
 }
 
 

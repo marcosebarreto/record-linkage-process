@@ -1,7 +1,7 @@
 /*
 @(#)File:           $linkage.cu$
 @(#)Version:        $v2$
-@(#)Last changed:   $Date: 2017/01/18 09:05:00 $
+@(#)Last changed:   $Date: 2017/02/02 13:30:00 $
 @(#)Purpose:        Probabilistic linkage for 1GPU
 @(#)Author:         Pedro Marcelino Mendes Novaes Melo
                     Clicia Santos Pinto
@@ -42,13 +42,20 @@ int main(int argc, char const *argv[]) {
     double t1, t2;
     t1 = omp_get_wtime();
 
+    char file1[30];
+    strcpy(file1, "base_");
+    strcat(file1, argv[2]);
+    strcat(file1, "K.bloom");
+
+
     int nlines_a = 0, nlines_b = 0;
     int threads_per_block = atoi(argv[1]);
 
 //    printf("[LOADING DATABASES ... ]\n");
    
-    base_a = fopen("base_a39.bloom", "r");
-    base_b = fopen("base_a39.bloom", "r");
+    base_a = fopen(file1, "r");
+
+    base_b = fopen("base_1000K.bloom", "r");
 
     // --------------------- OPERATIONS WITH BASE A --------------------- //
     // getting line quantity
@@ -88,18 +95,15 @@ int main(int argc, char const *argv[]) {
     int *matrixA_d, *matrixB_d;
     int lower_threshold, upper_threshold;
 
-    // testing divide function
+    //  Splitting matrixA into 2 GPUs
     if(id == 0){
 	    int *matrixA_tmp;
 	    lower_threshold = 0;
 	    upper_threshold = (nlines_a/2);
 	    matrixA_tmp = divide(matrixA, lower_threshold, upper_threshold);
-//	   print_matrix(matrixA_tmp, (upper_threshold - lower_threshold));
 
-//	    cudaMalloc((int **)&matrixA_d, (20) * NCOL * sizeof(int));
-//	    cudaMemcpy(matrixA_d, matrixA_tmp, (20) * NCOL * sizeof(int), cudaMemcpyHostToDevice);
-	   cudaMalloc((int **)&matrixA_d, (upper_threshold - lower_threshold) * NCOL * sizeof(int));
-           cudaMemcpy(matrixA_d, matrixA_tmp, (upper_threshold - lower_threshold) * NCOL * sizeof(int), cudaMemcpyHostToDevice);
+	    cudaMalloc((int **)&matrixA_d, (upper_threshold - lower_threshold) * NCOL * sizeof(int));
+            cudaMemcpy(matrixA_d, matrixA_tmp, (upper_threshold - lower_threshold) * NCOL * sizeof(int), cudaMemcpyHostToDevice);
 
 
     }
@@ -109,7 +113,7 @@ int main(int argc, char const *argv[]) {
             lower_threshold = (nlines_a / 2);
             upper_threshold = (nlines_a);
             matrixA_tmp = divide(matrixA, lower_threshold, upper_threshold);
-            //print_matrix(matrixA_tmp, (upper_threshold - lower_threshold));
+	    
 	    cudaMalloc((int **)&matrixA_d, (upper_threshold - lower_threshold) * NCOL * sizeof(int));
 	    cudaMemcpy(matrixA_d, matrixA_tmp, (upper_threshold - lower_threshold) * NCOL * sizeof(int), cudaMemcpyHostToDevice);
 
@@ -117,20 +121,15 @@ int main(int argc, char const *argv[]) {
 
 
 
-/*    // allocating device memory using a cuda function
-    cudaMalloc((int **)&matrixA_d, nlines_a * NCOL * sizeof(int));
-*/
+    // allocating device memory 
     cudaMalloc((int **)&matrixB_d, nlines_b * NCOL * sizeof(int));
 
     // copying host memory to device
-//    cudaMemcpy(matrixA_d, matrixA_tmp, nlines_a * NCOL * sizeof(int), cudaMemcpyHostToDevice);
     cudaMemcpy(matrixB_d, matrixB, nlines_b * NCOL * sizeof(int), cudaMemcpyHostToDevice);
 
     // kernel operations
     // printf("[OPERATING AT KERNEL CUDA ... ]\n");
     dim3 dimGrid = (int) ceil( (int) (upper_threshold - lower_threshold) / (int) threads_per_block);
-//    dim3 dimGrid = (int) ceil( (int) nlines_a / (int) threads_per_block);
-
     dim3 dimBlock = threads_per_block;
     kernel<<<dimGrid, dimBlock>>>(matrixA_d, matrixB_d, (upper_threshold - lower_threshold), nlines_b);
 
@@ -139,19 +138,21 @@ int main(int argc, char const *argv[]) {
     // deallocating device memory
     cudaFree(matrixA_d);
     cudaFree(matrixB_d);
+
 } //fim pragma openmp
+
     free(matrixA);
     free(matrixB);
 
-    // close files
+    // closing files
     fclose(base_a);
     fclose(base_b);
 
-   t2 = omp_get_wtime();
+    t2 = omp_get_wtime();
 
-  //  int tam_prob = atoi(argv[2]); 
-  //  printf("%d\t%f\n", (tam_prob * 1000), (t2-t1));
-  printf("Tempo: %f\n", (t2-t1));
+    int length_problem = atoi(argv[2]);
+    printf("%d\t%f\n", (length_problem * 1000), (t2-t1));
+
     return 0;
 }
 
@@ -250,9 +251,6 @@ void print_matrix(int *matrix, int nlines) {
 
 __global__ void kernel(int *matrixA, int *matrixB, int nlines_a, int nlines_b){
     int i = blockIdx.x * blockDim.x + threadIdx.x;
-  // printf("Thread: %d ->  Na funcao de kernel\n", id_thread);
-// printf("I = %d - blockID.x= %d e blockId.y = %d -- blockDim.x = %d e blockDim.y = %d -- threadIdx.x = %d e threadIdx.y = %d\n", i, blockIdx.x, blockIdx.y, blockDim.x, blockDim.y, threadIdx.x, threadIdx.y);
-    // int j = blockIdx.y * blockDim.y + threadIdx.y;
 
   int bloomA[100], bloomB[100];
     if (i < nlines_a) {
@@ -280,7 +278,6 @@ __global__ void kernel(int *matrixA, int *matrixB, int nlines_a, int nlines_b){
 __device__ float dice(int *bloomA, int *bloomB) {
     double a = 0, b = 0, h = 0;
     int i;
-//    FILE *result;
 
     for (i = 0; i < 100; i++) {
         if (bloomA[i] == 1) {
@@ -293,7 +290,7 @@ __device__ float dice(int *bloomA, int *bloomB) {
         }
     }
     double dice = ((h * 2.0) / (a + b)) * 10000;
-   printf("%.1f\n", dice);
+//   printf("%.1f\n", dice);
     // contador++;
 
     return dice;

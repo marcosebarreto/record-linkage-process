@@ -1,7 +1,7 @@
 /*
 @(#)File:           $linkage.cu$
 @(#)Version:        $v2$
-@(#)Last changed:   $Date: 2017/01/20 09:05:00 $
+@(#)Last changed:   $Date: 2017/01/31 09:05:00 $
 @(#)Purpose:        Probabilistic linkage for 1GPU
 @(#)Author:         Pedro Marcelino Mendes Novaes Melo
                     Clicia Santos Pinto

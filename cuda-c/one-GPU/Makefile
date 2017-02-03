@@ -17,7 +17,7 @@ LIB_PATHS=-L$(MKL_PATH_LIB) -L$(LIB_DIR)
 NVCC=nvcc -ccbin=gcc-4.8
 CC=gcc
 
-sources.cu= linkage.cu
+sources.cu= linkage_ogpu.cu
 sources.c=
 
 CFLAGS = --compiler-options -fno-strict-aliasing -D_FORCE_INLINES -DUNIX -DADD_ -arch sm_20 -O3 -lm

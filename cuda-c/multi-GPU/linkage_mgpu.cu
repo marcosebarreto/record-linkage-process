@@ -43,11 +43,7 @@ int main(int argc, char const *argv[]) {
     t1 = omp_get_wtime();
 
     int nlines_a = 0, nlines_b = 0;
-
     char file1[30];
-    strcpy(file1, "base_");
-    strcat(file1, argv[2]);
-    strcat(file1, "K.bloom");
 
     // reading arguments
     int threads_per_block = atoi(argv[1]);
@@ -91,6 +87,7 @@ int main(int argc, char const *argv[]) {
 
     // ------------------------- CUDA OPERATIONS ------------------------ //
 
+    // pragma directive to create 2 threads to execute cuda code in parallel
     #pragma omp parallel num_threads(2)
     {
 
@@ -103,11 +100,14 @@ int main(int argc, char const *argv[]) {
         int *matrixA_d, *matrixB_d;
         int lower_threshold, upper_threshold;
 
-        //  Splitting matrixA into 2 GPUs
+        // splitting matrixA into 2 GPUs
         if(id == 0){
     	    int *matrixA_tmp;
-    	    lower_threshold = 0;
-    	    upper_threshold = (nlines_a/2);
+    	    // lower_threshold = 0;
+    	    // upper_threshold = (nlines_a/2);
+            lower_threshold = pu_threshold[2];
+            upper_threshold = pu_threshold[3];
+            printf("GPU1 = %d -- %d\n", lower_threshold, upper_threshold);
     	    matrixA_tmp = divide(matrixA, lower_threshold, upper_threshold);
 
     	    cudaMalloc((int **)&matrixA_d, (upper_threshold - lower_threshold) * NCOL * sizeof(int));
@@ -115,8 +115,11 @@ int main(int argc, char const *argv[]) {
         }
         else{
             int *matrixA_tmp;
-            lower_threshold = (nlines_a / 2);
-            upper_threshold = (nlines_a);
+            // lower_threshold = (nlines_a / 2);
+            // upper_threshold = (nlines_a);
+            lower_threshold = pu_threshold[4];
+            upper_threshold = pu_threshold[5];
+            printf("GPU2 = %d -- %d\n", lower_threshold, upper_threshold);
             matrixA_tmp = divide(matrixA, lower_threshold, upper_threshold);
             cudaMalloc((int **)&matrixA_d, (upper_threshold - lower_threshold) * NCOL * sizeof(int));
             cudaMemcpy(matrixA_d, matrixA_tmp, (upper_threshold - lower_threshold) * NCOL * sizeof(int), cudaMemcpyHostToDevice);
@@ -252,13 +255,15 @@ int *get_pu_threshold(int lines, int qtd_gpu, int percentage_each_gpu) {
     else {
         threshold_vector[0] = init_line;
         init_line = (lines * percentage_cpu)/100;
-        init_line++;
         threshold_vector[1] = init_line;
     }
 
     for (i = 2; i < (2 + qtd_gpu * 2); i = i + 2) {
         threshold_vector[i] = init_line;
         init_line = init_line + (lines * percentage_each_gpu)/100;
+        if ((lines * percentage_each_gpu)/100 % 2 != 0) {
+            init_line++;
+        }
         threshold_vector[i + 1] = init_line;
     }
 

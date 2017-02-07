@@ -1,7 +1,7 @@
 /*
 @(#)File:           $linkage.cu$
 @(#)Version:        $v3$
-@(#)Last changed:   $Date: 2017/02/03 09:05:00 $
+@(#)Last changed:   $Date: 2017/02/07 19:40:00 $
 @(#)Purpose:        Probabilistic linkage for multi-GPU
 @(#)Author:         Pedro Marcelino Mendes Novaes Melo
                     Clicia Santos Pinto
@@ -33,7 +33,7 @@ void process_file(FILE *fp, int *matrix);
 void print_matrix(int *matrix, int nlines);
 int *divide(int *source_matrix, int lower_threshold, int upper_threshold);
 int *get_pu_threshold(int lines, int qtd_gpu, int percentage_each_gpu);
-__global__ void kernel(int *matrixA, int *matrixB, int nlines_a, int nlines_b);
+__global__ void kernel(int *matrixA, int *matrixB, float *bloom_matrix, int nlines_a, int nlines_b);
 __device__ float dice(int *bloomA, int *bloomB);
 
 
@@ -98,11 +98,13 @@ int main(int argc, char const *argv[]) {
         cudaGetDevice(&gpu_id);
 
         int *matrixA_d, *matrixB_d;
+        float *bloomGPU_matrix_d;
         int lower_threshold, upper_threshold;
 
         // splitting matrixA into 2 GPUs
         if(id == 0){
     	    int *matrixA_tmp;
+
     	    // lower_threshold = 0;
     	    // upper_threshold = (nlines_a/2);
             lower_threshold = pu_threshold[2];
@@ -121,9 +123,14 @@ int main(int argc, char const *argv[]) {
             upper_threshold = pu_threshold[5];
             printf("GPU2 = %d -- %d\n", lower_threshold, upper_threshold);
             matrixA_tmp = divide(matrixA, lower_threshold, upper_threshold);
+
             cudaMalloc((int **)&matrixA_d, (upper_threshold - lower_threshold) * NCOL * sizeof(int));
             cudaMemcpy(matrixA_d, matrixA_tmp, (upper_threshold - lower_threshold) * NCOL * sizeof(int), cudaMemcpyHostToDevice);
         }
+
+        // operations about resulting matrix
+        float *bloomGPU_matrix = (float *)malloc((upper_threshold - lower_threshold) * sizeof(float));
+        cudaMalloc((float **)&bloomGPU_matrix_d, (upper_threshold - lower_threshold) * sizeof(float));
 
         // allocating device memory using a cuda function
         cudaMalloc((int **)&matrixB_d, nlines_b * NCOL * sizeof(int));
@@ -135,14 +142,22 @@ int main(int argc, char const *argv[]) {
         // printf("[OPERATING AT KERNEL CUDA ... ]\n");
         dim3 dimGrid = (int) ceil( (int) (upper_threshold - lower_threshold) / (int) threads_per_block);
         dim3 dimBlock = threads_per_block;
-        kernel<<<dimGrid, dimBlock>>>(matrixA_d, matrixB_d, (upper_threshold - lower_threshold), nlines_b);
+        kernel<<<dimGrid, dimBlock>>>(matrixA_d, matrixB_d, bloomGPU_matrix_d, (upper_threshold - lower_threshold), nlines_b);
+
+        cudaMemcpy(bloomGPU_matrix, bloomGPU_matrix_d, (upper_threshold - lower_threshold) * sizeof(float), cudaMemcpyDeviceToHost);
 
         cudaDeviceSynchronize();
 
         // deallocating device memory
         cudaFree(matrixA_d);
         cudaFree(matrixB_d);
+        cudaFree(bloomGPU_matrix_d);
 
+        printf("Thread %d:\n", id);
+        for (int i = 0; i < (upper_threshold - lower_threshold); i++) {
+            printf("%.1f ", bloomGPU_matrix[i]);
+        }
+        printf("\n");
     } // end pragma openmp
 
     free(matrixA);
@@ -261,7 +276,7 @@ int *get_pu_threshold(int lines, int qtd_gpu, int percentage_each_gpu) {
     for (i = 2; i < (2 + qtd_gpu * 2); i = i + 2) {
         threshold_vector[i] = init_line;
         init_line = init_line + (lines * percentage_each_gpu)/100;
-        if ((lines * percentage_each_gpu)/100 % 2 != 0) {
+        if ((lines * percentage_each_gpu) % 100 != 0) {
             init_line++;
         }
         threshold_vector[i + 1] = init_line;
@@ -293,13 +308,15 @@ void print_matrix(int *matrix, int nlines) {
 
 // Kernel CUDA to compute linkage between matrixA and matrixB using a dice
 // function as similarity measure
-__global__ void kernel(int *matrixA, int *matrixB, int nlines_a, int nlines_b){
+__global__ void kernel(int *matrixA, int *matrixB, float *bloom_matrix, int nlines_a, int nlines_b){
     int i = blockIdx.x * blockDim.x + threadIdx.x;
 
     int bloomA[100], bloomB[100];
 
     if (i < nlines_a) {
         // printf("%d ", matrixA[i * NCOL]);
+        float highest_dice = 0.0;
+        float lower_dice;
 
         // getting bloom filter for each matrixA register
         for (int j = 1; j < 101; j++) {
@@ -311,8 +328,15 @@ __global__ void kernel(int *matrixA, int *matrixB, int nlines_a, int nlines_b){
             for (int l = 1; l < 101; l++) {
                 bloomB[l - 1] = matrixB[k * NCOL + l];
             }
-            dice(bloomA, bloomB);
+            lower_dice = dice(bloomA, bloomB);
+
+            if (lower_dice > highest_dice) {
+                bloom_matrix[i] = lower_dice;
+                highest_dice = lower_dice;
+            }
         }
+
+        // printf("%f\n", bloom_matrix[i]);
     }
 
     // printf("num de comparacoes para thread %d: %d\n", i, contador);
@@ -321,7 +345,7 @@ __global__ void kernel(int *matrixA, int *matrixB, int nlines_a, int nlines_b){
 
 // device function to calculate dice coefficient using bloom filter
 __device__ float dice(int *bloomA, int *bloomB) {
-    double a = 0, b = 0, h = 0;
+    float a = 0, b = 0, h = 0;
     int i;
 
     for (i = 0; i < 100; i++) {
@@ -334,7 +358,7 @@ __device__ float dice(int *bloomA, int *bloomB) {
             b++;
         }
     }
-    double dice = ((h * 2.0) / (a + b)) * 10000;
+    float dice = ((h * 2.0) / (a + b)) * 10000;
     //   printf("%.1f\n", dice);
     // contador++;
 

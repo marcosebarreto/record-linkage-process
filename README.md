@@ -28,7 +28,7 @@ Examine large databases from different domains in the search for records that re
         $ cd cuda-c/one-GPU
         $ make clean
         $ make
-        $ ./linkage <num_threads_per_block> <larger_file>
+        $ ./linkage_ogpu <num_threads_per_block> <larger_file>
         ```
 
     * multi-GPU:
@@ -37,15 +37,15 @@ Examine large databases from different domains in the search for records that re
         $ cd cuda-c/multi-GPU
         $ make clean
         $ make
-        $ ./linkage <num_threads_per_block> <file1> <threads_openmp> <percentage_each_gpu> <qtd_gpu>
+        $ ./linkage_mgpu <num_threads_per_block> <file1> <threads_openmp> <percentage_each_gpu> <qtd_gpu>
         ```
 
 
 #### Update logs
 
-> **12/17/2016** : cuda c code for one gpu added.
-> **02/01/2017** : openmp code added.
-> **02/03/2017** : cuda c code for two or manu gpus added.
+> 12/17/2016 : cuda c code for one gpu added.
+> 02/01/2017 : openmp code added.
+> 02/03/2017 : cuda c code for two or manu gpus added.
 
 [OpenMP]: <http://www.openmp.org/>
 [MIC]: <http://www.intel.com/content/www/us/en/architecture-and-technology/many-integrated-core/intel-many-integrated-core-architecture.html>

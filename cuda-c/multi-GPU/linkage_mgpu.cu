@@ -1,7 +1,7 @@
 /*
 @(#)File:           $linkage.cu$
 @(#)Version:        $v3$
-@(#)Last changed:   $Date: 2017/02/03 09:05:00 $
+@(#)Last changed:   $Date: 2017/02/09 09:05:00 $
 @(#)Purpose:        Probabilistic linkage for multi-GPU
 @(#)Author:         Pedro Marcelino Mendes Novaes Melo
                     Clicia Santos Pinto
@@ -9,7 +9,7 @@
 @(#)Usage:
  (*) Hotocompile:   make clean; make
  (*) Hotoexecute:  ./object <num_threads_per_block> <file1> <threads_openmp> <percentage_each_gpu> <qtd_gpu>
- (*) Hotoexecute:  ./linkage 16 1000 32 45 2
+ (*) Hotoexecute:  ./linkage 64 100 32 40 2
 @(#)Comment:
  (*) Pass arguments (name of file *.bloom) for command-line interface
  (*) Get time with omp_get_wtime() in seconds
@@ -49,7 +49,6 @@ int main(int argc, char const *argv[]) {
     strcat(file1, argv[2]);
     strcat(file1, "K.bloom");
 
-    // reading arguments
     int threads_per_block = atoi(argv[1]);
     strcpy(file1, "base_");
     strcat(file1, argv[2]);
@@ -60,7 +59,7 @@ int main(int argc, char const *argv[]) {
 
     // printf("[LOADING DATABASES ... ]\n");
     base_a = fopen(file1, "r");
-    base_b = fopen("base_100K.bloom", "r");
+    base_b = fopen("base_1000K.bloom", "r");
 
     // --------------------- OPERATIONS WITH BASE A --------------------- //
     // getting line quantity
@@ -88,16 +87,16 @@ int main(int argc, char const *argv[]) {
     int *pu_threshold;
     pu_threshold = get_pu_threshold(nlines_a, qtd_gpu, percentage_each_gpu);
 
-    printf("Imprimindo o vetor de índices");
+/*    printf("Imprimindo o vetor de índices");
     for(int i=0;i<6;i++){
     	printf("%d ", pu_threshold[i]);
 	}
 	printf("\n");
+*/
 
-/*
     // ------------------------- CUDA OPERATIONS ------------------------ //
 
-    #pragma omp parallel num_threads(2)
+    #pragma omp parallel num_threads(qtd_gpu+1)
     {
 
         int id;
@@ -111,19 +110,22 @@ int main(int argc, char const *argv[]) {
 
         //  Splitting matrixA into 2 GPUs
         if(id == 0){
-    	    int *matrixA_tmp;
-    	    lower_threshold = 0;
-    	    upper_threshold = (nlines_a/2);
+/*    	    int *matrixA_tmp;
+    	    lower_threshold = pu_threshold[id * 2];
+            upper_threshold = pu_threshold[(id * 2)+1];
     	    matrixA_tmp = divide(matrixA, lower_threshold, upper_threshold);
 
     	    cudaMalloc((int **)&matrixA_d, (upper_threshold - lower_threshold) * NCOL * sizeof(int));
             cudaMemcpy(matrixA_d, matrixA_tmp, (upper_threshold - lower_threshold) * NCOL * sizeof(int), cudaMemcpyHostToDevice);
+*/
+           // printf("Thread de id = %d vai executar entre os indices= %d e %d (multicore)\n",id, pu_threshold[id * 2],pu_threshold[(id * 2)+1]);
         }
         else{
             int *matrixA_tmp;
-            lower_threshold = (nlines_a / 2);
-            upper_threshold = (nlines_a);
+            lower_threshold = pu_threshold[id * 2];
+            upper_threshold = pu_threshold[(id * 2)+1];
             matrixA_tmp = divide(matrixA, lower_threshold, upper_threshold);
+	    //print_matrix(matrixA_tmp,upper_threshold-lower_threshold);
             cudaMalloc((int **)&matrixA_d, (upper_threshold - lower_threshold) * NCOL * sizeof(int));
             cudaMemcpy(matrixA_d, matrixA_tmp, (upper_threshold - lower_threshold) * NCOL * sizeof(int), cudaMemcpyHostToDevice);
         }
@@ -159,7 +161,7 @@ int main(int argc, char const *argv[]) {
 
     int length_problem = atoi(argv[2]);
     printf("%d\t%f\n", (length_problem * 1000), (t2-t1));
-*/
+
     return 0;
 }
 

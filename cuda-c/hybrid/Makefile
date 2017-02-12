@@ -17,14 +17,14 @@ LIB_PATHS=-L$(MKL_PATH_LIB) -L$(LIB_DIR)
 NVCC=nvcc -ccbin=gcc-4.8
 CC=gcc
 
-sources.cu=linkage_mgpu.cu
+sources.cu=linkage_hybrid.cu
 sources.c=
 
 CFLAGS = --compiler-options -fno-strict-aliasing -D_FORCE_INLINES -DUNIX -DADD_ -arch sm_20 -O3 -lm -lstdc++
 
 libs = $(LIB_PATHS) -lcublas -lcudart $(MKL_LIBS_64) -lpthread
 
-exec = linkage_mgpu
+exec = linkage_hybrid
 
 objects = $(sources.c:.c=.o) $(sources.cu:.cu=.o)
 
@@ -34,7 +34,7 @@ all: $(exec)
 $(exec): $(includes) $(objects)
 	$(NVCC) $(objects) $(CFLAGS) -o $@ $(libs)
 
-main.o:linkage_mgpu.cu
+main.o:linkage_hybrid.cu
 	$(NVCC) $(CFLAGS) -c $^
 
 %.o:%.cu

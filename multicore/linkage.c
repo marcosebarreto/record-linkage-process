@@ -1,155 +1,204 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <omp.h>
 
-#define TAM_BLOOM 100
-//#define NUM_THREADS 12
+#define NCOL 101
 
+void fill_matrix(int *, int , char *);
+int get_num_of_lines(FILE *);
+void process_file(FILE *, int *);
+void print_matrix(int *, int );
+void multicore_execution(int *, int *, int , int , int , int );
+float dice_multicore(int *, int *);
+void print_matrix(int *matrix, int nlines);
 
-void divide(char[][256], char[], int); //eliminar o parametro int que representa a id, pois não é usado
+int comparacoes = 0;
 
-float getDice (char[], char[]);
+int main(int argc, char const *argv[]) {
+    FILE *base_a, *base_b;
+    char file1[30];
+    double t1, t2;
+    double quantum, leftover;
+    int threads_openmp = atoi(argv[1]);
+    int nlines_a, nlines_b;
 
-int get_number_lines(FILE *);
+    strcpy(file1, "base_");
+    strcat(file1, argv[2]);
+    strcat(file1, "K.bloom");
 
-int main(int argc, char *argv[]){
-	char buffer_line_p[255], lineSplitedP[2][256], buffer_line_q[255], lineSplitedQ[2][256];
-	int id, nt, lines_p, lines_q;
-	float dice;
-	double t1, t2;
-	int NUM_THREADS = atoi(argv[2]);
-	FILE *p[NUM_THREADS], *q[NUM_THREADS];
+    base_a = fopen(file1, "r");
+    base_b = fopen("base_10K.bloom", "r");
 
+    nlines_a = get_num_of_lines(base_a);
+    int *matrixA = (int *)malloc(nlines_a * NCOL * sizeof(int));
+    process_file(base_a, matrixA);
+	// print_matrix(matrixA, nlines_a);
 
+    nlines_b = get_num_of_lines(base_b);
+    int *matrixB = (int *)malloc(nlines_b * NCOL * sizeof(int));
+    process_file(base_b, matrixB);
+	// print_matrix(matrixB, nlines_b);
+
+    	quantum = (float)nlines_a / threads_openmp;
+	leftover = (quantum - (int)quantum) * threads_openmp;
+	//printf("Total de linhas em A: %d -- Total de threads: %d Quantum: %f -- Leftover: %d\n", nlines_a, threads_openmp, quantum, (int)leftover);
 	t1 = omp_get_wtime();
-	#pragma omp parallel num_threads(NUM_THREADS) private(id, nt, dice, lines_p, lines_q, buffer_line_p, lineSplitedP, buffer_line_q, lineSplitedQ)
+
+
+	#pragma omp parallel num_threads(threads_openmp)
 	{
-		int count = 0, countq = 0;
-		int inicio, fim, fracao, resto, aux=0;
-
-		nt = omp_get_num_threads();
-		id = omp_get_thread_num();
-
-
-		p[id] = fopen("base_1M.bloom", "r");
-		q[id] = fopen("base_100k.bloom", "r");
-
-		//Isolar esse procedimento para só ser feito por uma thread: a que chegar primeiro
-//		lines_p = get_number_lines(p[id]);
-		lines_p = atoi(argv[1]);
-		lines_q = get_number_lines(q[id]);
-
-		fseek ( p[id] , 0 , SEEK_SET);
-		fseek ( q[id] , 0 , SEEK_SET);
-
-		resto = lines_p % NUM_THREADS;
-		fracao = lines_p / NUM_THREADS;
-
-		if(id < resto){
-			inicio = id * (fracao+1);
-			fim = inicio + (fracao+1);
-
-
-		}
-		else{
-			inicio = (id * (fracao+1)) - (id - resto);
-			fim = inicio + fracao;
-
-		}
-		while(aux < inicio){
-			fgets(buffer_line_p, 255, p[id]);
-			aux++;
-
-		}
-/*		printf("Thread %d prendeu a aux até aux = %d\n", id, aux);
-		printf("THREAD %d -- Arquivo com %d linhas -- inicio na linha %d e fim na linha %d \n", id, lines_p, inicio, fim);
-*/
-		int i;
-		for( i=inicio; i<fim; i++){
-
-			fgets(buffer_line_p, 255, p[id]);
-			aux++;
-			divide(lineSplitedP, buffer_line_p, id);
-
-			//printf("Iteração externa %d da thread %d -- Tamanho: %ld e %ld -- aux: %d\n", count, id, strlen(lineSplitedP[0]), strlen(lineSplitedP[1]), aux-1);
-			count++;
-			countq = 0;
-
-			while(fgets(buffer_line_q, 255, q[id]) != NULL){
-				divide(lineSplitedQ, buffer_line_q, id);
-				countq++;
-				dice = getDice(lineSplitedP[1], lineSplitedQ[1]);
-
-
-			}
-			fseek ( q[id] , 0 , SEEK_SET);
-
-		}
-		fclose(p[id]);
-		fclose(q[id]);
+		int thread_id = omp_get_thread_num();
+		multicore_execution(matrixA, matrixB, nlines_b, thread_id, (int) quantum, (int) leftover);
 	}
-	t2 = omp_get_wtime();
-	printf("%d\t%f\n",atoi(argv[1]), t2-t1);
 
+	t2 = omp_get_wtime();
+	int length_problem = atoi(argv[2]);
+	printf("%d\t%f\n", (length_problem * 1000), (t2 - t1));
+
+	//printf("comparacoes: %d\n", comparacoes);
 
 	return 0;
-
 }
 
-//Função testada
-void divide(char m[][256], char v[],  int ident){
-	char c;
-	int i = 0, j=0;
-	//printf("Mensagem da Função reordena: Recebido da thread: %d a matriz no endereço: %p e o vetor no endereço %p\n", ident, m, v);
-	c = v[0];
-	do{
-		m[0][i] = (char) c;
-		i++;
-		c = v[i];
-	}while(c != ';');
-	m[0][i] = '\0';
+void multicore_execution(int *matrixA, int *matrixB, int nlines_b, int thread_id, int quantum, int leftover){
+	int bloomA[100], bloomB[100], inicio, fim;
 
-	//pulando o ;
-	i++;
-	c = v[i];
+	if(thread_id < leftover) {
+        inicio = thread_id * (quantum + 1);
+        fim = quantum + 1 + inicio;
+    }
+    else {
+        if (thread_id == leftover) {
+            if (leftover == 0) {
+                inicio = thread_id * quantum;
+                fim = inicio + quantum;
+            }
+            else {
+                inicio = thread_id * (quantum + 1);
+                fim = inicio + quantum;
+            }
+        }
+        else {
+            if (leftover == 0) {
+                inicio = thread_id * quantum;
+                fim = inicio + quantum;
+            }
+            else {
+                inicio = thread_id * (quantum + 1) - (thread_id - leftover);
+                fim = inicio + quantum;
+            }
+        }
+    }
 
-	do{
-		m[1][j] = (char) c;
-		i++;
-		c = v[i];
-		j++;
-	}while(c!='\n');
-	m[1][j] = '\0';
+    //printf("Thread aninhada de id: %d vai executar da linha %d até a linha %d\n",thread_id, inicio, fim);
 
-}
-
-float getDice (char vP[], char vQ[]){
-	float a=0, b=0, h=0;
-	int i;
-	float dice;
-
-	for(i=0; i<TAM_BLOOM; i++){
-		if (vP[i] == '1'){
-			a++;
-			if(vQ[i] == '1') h++;
+	int i = inicio;
+	while (i < fim) {
+		for (int j = 1; j < 101; j++) {
+			bloomA[j - 1] = matrixA[i * NCOL + j];
 		}
-		if(vQ[i] == '1'){
-			b++;
+		// getting bloom filter for each matrixB register
+		for (int k = 0; k < nlines_b; k++) {
+			for (int l = 1; l < 101; l++) {
+				bloomB[l - 1] = matrixB[k * NCOL + l];
+			}
+			dice_multicore(bloomA, bloomB);
 		}
+		i++;
 	}
-	dice = ((h*2.0) / (a+b)) *10000;
-
-	return dice;
-
 }
 
-int get_number_lines(FILE * arquivo){
-	char buffer[255];
-	int count=0;
+float dice_multicore(int *bloomA, int *bloomB) {
+	//printf("%d\n", comparacoes++);
+    double a = 0, b = 0, h = 0;
+    int i;
 
-	while(fgets(buffer,255,arquivo) != NULL){
-		count++;
-	}
-	return count;
+    for (i = 0; i < 100; i++) {
+        if (bloomA[i] == 1) {
+            a++;
+            if (bloomB[i] == 1)
+                h++;
+        }
+        if (bloomB[i] == 1) {
+            b++;
+        }
+    }
+    double dice = ((h * 2.0) / (a + b)) * 10000;
+    //   printf("%.1f\n", dice);
+    return dice;
+}
+
+void fill_matrix(int *matrix, int pos, char *line) {
+    int i = 0, j = 0;
+    char c, id[10];
+
+    do {
+        c = line[j];
+        id[j] = c;
+        j++;
+    } while (c != ';');
+    id[j-1] = '\0';
+    // printf("ncol * pos: %d\n", NCOL * pos);
+    matrix[NCOL * pos] = atoi(id);
+
+    for (i = 1; i < NCOL; i++) {
+        matrix[NCOL * pos + i] = line[j] - '0';
+        j++;
+    }
+}
+
+void process_file(FILE *fp, int *matrix) {
+    char line[256];
+    int pos_to_insert = 0;
+
+    rewind(fp);
+
+    // getting line by line to insert into matrix
+    if(!fgets(line, 255, fp))
+        printf("fp = NULL");
+    while (!feof(fp)) {
+        line[strlen(line) - 1] = '\0';
+        fill_matrix(matrix, pos_to_insert, line);
+
+        pos_to_insert++;
+        if(!fgets(line, 255, fp))
+            break;
+    }
+}
+
+
+int get_num_of_lines(FILE *fp) {
+    int lines = 0;
+    char line[256];
+    if(!fgets(line, 255, fp))
+        printf("fp = NULL");
+
+    while (!feof(fp)) {
+        lines++;
+        if(!fgets(line, 255, fp))
+            break;
+    }
+
+    return lines;
+}
+
+
+void print_matrix(int *matrix, int nlines) {
+    int i, j;
+
+    // for (i = 0; i < NCOL * nlines; i += 101) {
+    //     printf("%d | ", matrix[i]);
+    // }
+    // printf("\n");
+
+    for (i = 0; i < nlines; i++) {
+		printf("imprimindo a linha %d: \n", i);
+        for (j = 0; j < NCOL; j++) {
+            printf("%d", matrix[i * NCOL + j]);
+        }
+        printf("\n");
+    }
+    printf("\n");
 }

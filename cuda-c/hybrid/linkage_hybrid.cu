@@ -1,14 +1,14 @@
 /*
 @(#)File:           $linkage.cu$
 @(#)Version:        $v3$
-@(#)Last changed:   $Date: 2017/02/09 09:05:00 $
+@(#)Last changed:   $Date: 2017/02/10 09:05:00 $
 @(#)Purpose:        Probabilistic linkage for multi-GPU
 @(#)Author:         Pedro Marcelino Mendes Novaes Melo
                     Clicia Santos Pinto
                     Murilo Boratto
 @(#)Usage:
  (*) Hotocompile:   make clean; make
- (*) Hotoexecute:  ./object <num_threads_per_block> <file1> <threads_openmp> <percentage_each_gpu> <num_gpus>
+ (*) Hotoexecute:  ./object <num_threads_per_block> <file1> <threads_openmp> <percentage_each_gpu> <qtd_gpu>
  (*) Hotoexecute:  ./linkage 64 100 32 40 2
 @(#)Comment:
  (*) Pass arguments (name of file *.bloom) for command-line interface
@@ -19,155 +19,116 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <cuda.h>
 #include <time.h>
 #include <omp.h>
+#include <cuda.h>
 
 #define NCOL 101
 
-__device__ int contador = 0;
-
-void fill_matrix(int *, int , char *);
-int get_num_of_lines(FILE *);
-void process_file(FILE *, int *);
-void print_matrix(int *, int );
-int *divide_matrix(int *, int , int );
-int *get_pu_edges(int , int , int );
-void multicore_execution(int *, int *, int , int , int , int );
-float dice_multicore(int *, int *);
-//void multicore_execution(int nlines_b, int id_nested, int quantum, int leftover);
-__global__ void kernel(int *, int *, int , int );
-__device__ float dice(int *, int *);
+void fill_matrix(int *matrix, int pos, char *line);
+int get_num_of_lines(FILE *fp);
+void process_file(FILE *fp, int *matrix);
+void print_matrix(int *matrix, int nlines);
+int *divide(int *source_matrix, int lower_threshold, int upper_threshold);
+int *get_pu_threshold(int lines, int qtd_gpu, int percentage_each_gpu);
+void executa_multicore(int *matrixA, int *matrixB, int nlines_b, int id_nested, int quantum, int leftover);
+float dice_multicore(int *bA, int *bB);
+__global__ void kernel(int *matrixA, int *matrixB, int nlines_a, int nlines_b);
+__device__ float dice(int *bloomA, int *bloomB);
 
 
 int main(int argc, char const *argv[]) {
     FILE *base_a, *base_b;
-    char file1[30];
     double t1, t2;
-    int nlines_a = 0, nlines_b = 0;
-    int *pu_edges;
-    int threads_per_block = atoi(argv[1]);
- 	int threads_openmp = atoi(argv[3]);
-    int percentage_each_gpu = atoi(argv[4]);
-    int num_gpus = atoi(argv[5]);
 
-    t1 = omp_get_wtime();
-    
+    int nlines_a = 0, nlines_b = 0, lower_threshold, upper_threshold, *pu_threshold;
+
+    char file1[30];
     strcpy(file1, "base_");
     strcat(file1, argv[2]);
     strcat(file1, "K.bloom");
 
-    // printf("[LOADING DATABASES ... ]\n");
+    int threads_per_block = atoi(argv[1]);
+    int threads_openmp = atoi(argv[3]);
+    int percentage_each_gpu = atoi(argv[4]);
+    int qtd_gpu = atoi(argv[5]);
+
+    // --------------------- START: opening and loading files A and B --------------------- //
     base_a = fopen(file1, "r");
     base_b = fopen("base_1000K.bloom", "r");
 
-    // --------------------- INIT: Reading A and B Files --------------------- //
-    // printf("[GETTING NUMBER LINES FOR BASE A ... ]\n");
     nlines_a = get_num_of_lines(base_a);
     int *matrixA = (int *)malloc(nlines_a * NCOL * sizeof(int));
-
-    // Filling matrixA with records from original file
     process_file(base_a, matrixA);
-    // print_matrix(matrixA, nlines_a); //TODO: apagar após testar
+    // print_matrix(matrixA, nlines_a);
 
-    // printf("[GETTING NUMBER LINES FOR BASE B ... ]\n");
     nlines_b = get_num_of_lines(base_b);
     int *matrixB = (int *)malloc(nlines_b * NCOL * sizeof(int));
-
-    // Filling matrixB with records from original file
     process_file(base_b, matrixB);
     // print_matrix(matrixB, nlines_b);
-    // --------------------- END: Reading A and B Files --------------------- //
+    // --------------------- END: opening and loading files A and B --------------------- //
 
-    // Getting initial and final indexes in which each PU will execute
-    pu_edges = get_pu_edges(nlines_a, num_gpus, percentage_each_gpu);
-
-//TODO:Apagar após testar
-/*   printf("Imprimindo o vetor de índices: ");
-    for(int i=0;i<6;i++){
-    	printf("%d ", pu_edges[i]);
-	}
-	printf("\n");
-*/	
-
+    pu_threshold = get_pu_threshold(nlines_a, qtd_gpu, percentage_each_gpu);
+    t1 = omp_get_wtime();
     omp_set_nested(1);
-    #pragma omp parallel num_threads(num_gpus+1)
+    #pragma omp parallel num_threads(qtd_gpu+1) private(lower_threshold, upper_threshold)
     {
-		int *matrixA_d, *matrixB_d;
-		int lower_edge, upper_edge, thread_id, gpu_id = -1;
+        int id;
+        id = omp_get_thread_num();
 
-		thread_id = omp_get_thread_num();
-		cudaSetDevice(thread_id);
-		cudaGetDevice(&gpu_id);
+        if((id == 0) && (pu_threshold[0]!= -1)){
+            double quantum, leftover;
+            lower_threshold = pu_threshold[id * 2];
+            upper_threshold = pu_threshold[(id * 2)+1];
+            quantum = (float)upper_threshold / threads_openmp;
+            leftover = (quantum - (int)quantum) * threads_openmp;
+            int *matrixA_tmp;
+            matrixA_tmp = divide(matrixA, lower_threshold, upper_threshold);
+            //printf("MatrixA, inicio = %d -- fim = %d\n", lower_threshold, upper_threshold);
+            #pragma omp parallel num_threads(threads_openmp)
+            {
+                int id_nested;
+                id_nested = omp_get_thread_num();
+                executa_multicore(matrixA_tmp, matrixB, nlines_b, id_nested, (int) quantum, (int) leftover);
+            }
+        }
 
-		// Thread 0 will perform multicore execution
-		if(thread_id == 0){
-			int *matrixA_tmp;
-			lower_edge = pu_edges[thread_id * 2];
-			upper_edge = pu_edges[(thread_id * 2)+1];
-			// matrixA_tmp will store a part of matrixA equivalent the percentage chosen.
-			matrixA_tmp = divide_matrix(matrixA, lower_edge, upper_edge);
-
-			double quantum, leftover;
-			quantum = (float)upper_edge / threads_openmp;
-			leftover = (quantum - (int)quantum) * threads_openmp;
-			//leftover = ceilf(leftover);
-			//printf("Mensagem da thread multicore mãe: Quantum: %f, Leftover: %f\n",quantum, leftover);
-
-			#pragma omp parallel num_threads(threads_openmp)
-			{
-				int id_nested;
-				id_nested = omp_get_thread_num();
-				//printf("Thread mãe: %d executando a thread interna %d\n",thread_id, id_nested); //TODO: apagar após teste
-				multicore_execution(matrixA_tmp, matrixB, nlines_b, id_nested, (int) quantum, (int) leftover);				
-			}
-		}
-		// Thread 1 (and higher) will perform multicore execution.
-        else{
-//			printf("Executando a thread de numero: %d\n", thread_id);
-			int *matrixA_tmp;
-			lower_edge = pu_edges[thread_id * 2];
-			upper_edge = pu_edges[(thread_id * 2)+1];
-			matrixA_tmp = divide_matrix(matrixA, lower_edge, upper_edge);
-			//print_matrix(matrixA_tmp,upper_edge-lower_edge); //TODO: apagar após teste
-
-			cudaMalloc((int **)&matrixA_d, (upper_edge - lower_edge) * NCOL * sizeof(int));
-			cudaMemcpy(matrixA_d, matrixA_tmp, (upper_edge - lower_edge) * NCOL * sizeof(int), cudaMemcpyHostToDevice);
-			cudaMalloc((int **)&matrixB_d, nlines_b * NCOL * sizeof(int));
-			cudaMemcpy(matrixB_d, matrixB, nlines_b * NCOL * sizeof(int), cudaMemcpyHostToDevice);
-
-			// kernel operations
-			// printf("[OPERATING AT KERNEL CUDA ... ]\n"); // TODO: apagar apos teste
-			dim3 dimGrid = (int) ceil( (int) (upper_edge - lower_edge) / (int) threads_per_block);
-			dim3 dimBlock = threads_per_block;
-			kernel<<<dimGrid, dimBlock>>>(matrixA_d, matrixB_d, (upper_edge - lower_edge), nlines_b);
-
-			cudaDeviceSynchronize();
-
-			// deallocating device memory
-			cudaFree(matrixA_d);
-			cudaFree(matrixB_d);
-		}
-
-    } // end pragma openmp
-
-    free(matrixA);
-    free(matrixB);
-    
-    fclose(base_a);
-    fclose(base_b);
+        else if((id != 0) && (pu_threshold[2]!= -1)){
+            int gpu_id = -1;
+            cudaSetDevice(id);
+            cudaGetDevice(&gpu_id);
+            int *matrixA_d, *matrixB_d, *matrixA_tmp;
+            lower_threshold = pu_threshold[id * 2];
+            upper_threshold = pu_threshold[(id * 2)+1];
+            matrixA_tmp = divide(matrixA, lower_threshold, upper_threshold);
+            cudaMalloc((int **)&matrixA_d, (upper_threshold - lower_threshold) * NCOL * sizeof(int));
+            cudaMemcpy(matrixA_d, matrixA_tmp, (upper_threshold - lower_threshold) * NCOL * sizeof(int), cudaMemcpyHostToDevice);
+            cudaMalloc((int **)&matrixB_d, nlines_b * NCOL * sizeof(int));
+            cudaMemcpy(matrixB_d, matrixB, nlines_b * NCOL * sizeof(int), cudaMemcpyHostToDevice);
+            dim3 dimGrid = (int) ceil( (int) (upper_threshold - lower_threshold) / (int) threads_per_block);
+            dim3 dimBlock = threads_per_block;
+            kernel<<<dimGrid, dimBlock>>>(matrixA_d, matrixB_d, (upper_threshold - lower_threshold), nlines_b);
+            cudaDeviceSynchronize();
+            cudaFree(matrixA_d);
+            cudaFree(matrixB_d);
+        }
+    }
 
     t2 = omp_get_wtime();
+    free(matrixA);
+    free(matrixB);
+    fclose(base_a);
+    fclose(base_b);
 
     int length_problem = atoi(argv[2]);
     printf("%d\t%f\n", (length_problem * 1000), (t2-t1));
 
     return 0;
+
 }
 
 
-// function to get the number of rows in a file
-// input: reference for a open file || output: Number of rows in a file
+// function to get the number of lines of the file
 int get_num_of_lines(FILE *fp) {
     int lines = 0;
     char line[256];
@@ -184,8 +145,7 @@ int get_num_of_lines(FILE *fp) {
 }
 
 
-// function to put every row in a file into a vector (that can be read as a matrix)
-// input: reference for a open file; pointer to include the elements of file || output: None. The vector will be changed by reference
+// function to get line by line of the file
 void process_file(FILE *fp, int *matrix) {
     char line[256];
     int pos_to_insert = 0;
@@ -207,7 +167,6 @@ void process_file(FILE *fp, int *matrix) {
 
 
 // function to split a line and to insert the elements in matrix
-// input: TODO
 void fill_matrix(int *matrix, int pos, char *line) {
     int i = 0, j = 0;
     char c, id[10];
@@ -218,7 +177,6 @@ void fill_matrix(int *matrix, int pos, char *line) {
         j++;
     } while (c != ';');
     id[j-1] = '\0';
-    // printf("ncol * pos: %d\n", NCOL * pos);
     matrix[NCOL * pos] = atoi(id);
 
     for (i = 1; i < NCOL; i++) {
@@ -227,57 +185,56 @@ void fill_matrix(int *matrix, int pos, char *line) {
     }
 }
 
-// function to divide a matrix into a smaller matrix, given a lower edge and a upper edge.
-// input: TODO
-int *divide_matrix(int *original_matrix, int lower_edge, int upper_edge) {
-    static int *final_matrix;
-	int i, j = 0;
-
-    final_matrix = (int *)malloc((upper_edge - lower_edge) * NCOL * sizeof(int));
-    for (i = (lower_edge * NCOL); i < (upper_edge * NCOL); i++) {
-        final_matrix[j] = original_matrix[i];
+// function to divide matrixA into a smaller matrix, given a lower threshold
+// and a upper threshold. Each one will be executed on a GPU
+int *divide(int *source_matrix, int lower_threshold, int upper_threshold) {
+    static int *destination_matrix;
+    destination_matrix = (int *)malloc((upper_threshold - lower_threshold) * NCOL * sizeof(int));
+    int i, j = 0;
+    for (i = (lower_threshold * NCOL); i < (upper_threshold * NCOL); i++) {
+        destination_matrix[j] = source_matrix[i];
         j++;
     }
-    return final_matrix;
+
+    return destination_matrix;
 }
 
-// function to indicate edges for each PU according to the problem size
-// input: TODO
-int *get_pu_edges(int problem_size, int num_gpus, int percentage_each_gpu) {
-    static int *edge_vector;
-    int i, border = 0;
-    float quantum_cpu, quantum_gpu, leftover = 0.0;   
-    int percentage_cpu = 100 - (percentage_each_gpu * num_gpus);
-    
-    edge_vector = (int *)malloc((2 + (num_gpus * 2)) * sizeof(int));
 
+// function to indicate the upper and lower threshold for each gpu and cpu
+// according to number of lines in matrixA
+int *get_pu_threshold(int problem_size, int qtd_gpu, int percentage_each_gpu) {
+    static int *threshold_vector;
+    int i, border = 0;
+    float quantum_cpu, quantum_gpu, leftover = 0.0;
+    int percentage_cpu = 100 - (percentage_each_gpu * qtd_gpu);
+    threshold_vector = (int *)malloc((2 + (qtd_gpu * 2)) * sizeof(int));
 
     quantum_cpu = (percentage_cpu/100.0)*problem_size;
     quantum_gpu = (percentage_each_gpu/100.0)*problem_size;
     leftover = quantum_cpu - ((int)quantum_cpu);
-    leftover += (quantum_gpu - ((int)quantum_gpu))*(num_gpus);
+    leftover += (quantum_gpu - ((int)quantum_gpu))*2.0;
 
     if (percentage_cpu == 0) {
-        edge_vector[0] = -1;
-        edge_vector[1] = -1;
+        threshold_vector[0] = -1;
+        threshold_vector[1] = -1;
     }
     else {
-        edge_vector[0] = border;
+        threshold_vector[0] = border;
         border = border+(int)quantum_cpu;
 	if ((int)leftover != 0){
 		border++;
 		leftover-= 1.0;
 	}
-        edge_vector[1] = border;
+        threshold_vector[1] = border;
     }
-	
 
-    for (i = 2; i < (2 + num_gpus * 2); i = i + 2) {
+
+    for (i = 2; i < (2 + qtd_gpu * 2); i = i + 2) {
         if(percentage_each_gpu == 0){
                 border = -1;
         }
 
-        edge_vector[i] = border;
+        threshold_vector[i] = border;
 	if ((int)leftover != 0){
                 border++;
                 leftover-= 1.0;
@@ -287,15 +244,16 @@ int *get_pu_edges(int problem_size, int num_gpus, int percentage_each_gpu) {
         }
 
         border = border+(int)quantum_gpu;
-        edge_vector[i + 1] = border;
+        threshold_vector[i + 1] = border;
     }
 
-    return edge_vector;
+    return threshold_vector;
 }
 
 
 void print_matrix(int *matrix, int nlines) {
     int i, j;
+
 
     for (i = 0; i < nlines; i++) {
         for (j = 0; j < NCOL; j++) {
@@ -306,7 +264,8 @@ void print_matrix(int *matrix, int nlines) {
     printf("\n");
 }
 
-void multicore_execution(int *matrixA, int *matrixB, int nlines_b, int id_nested, int quantum, int leftover){
+
+void executa_multicore(int *matrixA, int *matrixB, int nlines_b, int id_nested, int quantum, int leftover){
 	int bloomA[100], bloomB[100], inicio, fim;
 	if(id_nested < leftover){
 		inicio = id_nested * (quantum +1);
@@ -334,30 +293,24 @@ void multicore_execution(int *matrixA, int *matrixB, int nlines_b, int id_nested
 			}
 		}
 	}
-//	printf("Thread aninhada de id: %d vai executar da linha %d até a linha %d\n",id_nested, inicio, fim);
-	int i = inicio;
-	while (i < fim) {
-	        for (int j = 1; j < 101; j++) {
-	            bloomA[j - 1] = matrixA[i * NCOL + j];
-        	}
-	        // getting bloom filter for each matrixB register
-        	for (int k = 0; k < nlines_b; k++) {
-        		for (int l = 1; l < 101; l++) {
-		                bloomB[l - 1] = matrixB[k * NCOL + l];
-            		}
-	            //x = dice(bloomA, bloomB);
-            		dice_multicore(bloomA, bloomB);
-//	                if(x > y){
-//	        	        vetor[i] = x;
-//              		y = x;
-//		        }
-        	}	
 
-		
-		i++;
-	}
-	
+    //  printf("Entrando em executa multicore com id_nested = %d inicio na linha%d e fim: %d \n", id_nested, inicio,fim);
+    int i = inicio;
+    while (i < fim) {
+        for (int j = 1; j < 101; j++) {
+            bloomA[j - 1] = matrixA[i * NCOL + j];
+        }
+        // getting bloom filter for each matrixB register
+        for (int k = 0; k < nlines_b; k++) {
+            for (int l = 1; l < 101; l++) {
+                bloomB[l - 1] = matrixB[k * NCOL + l];
+            }
+            dice_multicore(bloomA, bloomB);
+        }
+        i++;
+    }
 }
+
 
 // Kernel CUDA to compute linkage between matrixA and matrixB using a dice
 // function as similarity measure
@@ -367,9 +320,6 @@ __global__ void kernel(int *matrixA, int *matrixB, int nlines_a, int nlines_b){
     int bloomA[100], bloomB[100];
 
     if (i < nlines_a) {
-//    	y = 0;
-        // printf("%d ", matrixA[i * NCOL]);
-
         // getting bloom filter for each matrixA register
         for (int j = 1; j < 101; j++) {
             bloomA[j - 1] = matrixA[i * NCOL + j];
@@ -380,15 +330,9 @@ __global__ void kernel(int *matrixA, int *matrixB, int nlines_a, int nlines_b){
             for (int l = 1; l < 101; l++) {
                 bloomB[l - 1] = matrixB[k * NCOL + l];
             }
-            //x = dice(bloomA, bloomB);
             dice(bloomA, bloomB);
-//            if(x > y){
-//            	vetor[i] = x;
-//            	y = x;
-//            }
         }
     }
-
     // printf("num de comparacoes para thread %d: %d\n", i, contador);
 }
 
@@ -409,11 +353,11 @@ __device__ float dice(int *bloomA, int *bloomB) {
         }
     }
     double dice = ((h * 2.0) / (a + b)) * 10000;
-    //   printf("%.1f\n", dice);
-    // contador++;
-
+    // printf("%.1f\n", dice);
     return dice;
 }
+
+
 float dice_multicore(int *bloomA, int *bloomB) {
     double a = 0, b = 0, h = 0;
     int i;
@@ -429,9 +373,7 @@ float dice_multicore(int *bloomA, int *bloomB) {
         }
     }
     double dice = ((h * 2.0) / (a + b)) * 10000;
-    //   printf("%.1f\n", dice);
-    // contador++;
+    // printf("%.1f\n", dice);
 
     return dice;
 }
-  

@@ -21,15 +21,15 @@ int main(int argc, char const *argv[]) {
     char file1[30];
     double t1, t2;
     double quantum, leftover;
-    int threads_openmp = atoi(argv[1]);
+    int threads_openmp = atoi(argv[2]);
     int nlines_a, nlines_b;
 
     strcpy(file1, "base_");
-    strcat(file1, argv[2]);
-    strcat(file1, "K.bloom");
+    strcat(file1, argv[1]);
+    strcat(file1, ".bloom");
 
     base_a = fopen(file1, "r");
-    base_b = fopen("base_10K.bloom", "r");
+    base_b = fopen("base_10000.bloom", "r");
 
     nlines_a = get_num_of_lines(base_a);
     int *matrixA = (int *)malloc(nlines_a * NCOL * sizeof(int));
@@ -54,8 +54,8 @@ int main(int argc, char const *argv[]) {
 	}
 
 	t2 = omp_get_wtime();
-	int length_problem = atoi(argv[2]);
-	printf("%d\t%f\n", (length_problem * 1000), (t2 - t1));
+	int length_problem = atoi(argv[1]);
+	printf("%d\t%f\n", (length_problem), (t2 - t1));
 
 	//printf("comparacoes: %d\n", comparacoes);
 
@@ -64,6 +64,17 @@ int main(int argc, char const *argv[]) {
 
 void multicore_execution(int *matrixA, int *matrixB, int nlines_b, int thread_id, int quantum, int leftover){
 	int bloomA[100], bloomB[100], inicio, fim;
+    float dice;
+    FILE *result[thread_id];
+    char file_name[30];
+    char str[10];
+    sprintf(str, "%d", thread_id);
+
+    strcpy(file_name, "results_thread");
+    strcat(file_name, str);
+    strcat(file_name, ".dice");
+    //result[thread_id] = fopen(file_name, "a");
+    //result[thread_id] = fopen("results.dice", "a");
 
 	if(thread_id < leftover) {
         inicio = thread_id * (quantum + 1);
@@ -104,7 +115,10 @@ void multicore_execution(int *matrixA, int *matrixB, int nlines_b, int thread_id
 			for (int l = 1; l < 101; l++) {
 				bloomB[l - 1] = matrixB[k * NCOL + l];
 			}
-			dice_multicore(bloomA, bloomB);
+			dice = dice_multicore(bloomA, bloomB);
+	                //fprintf(result[thread_id], "%f\n", dice);
+            //fprintf(result[thread_id], "Thread: %d - IndiceA: %d IndiceB: %d Dice: %f\n", thread_id, matrixA[i], matrixB[i], dice);
+
 		}
 		i++;
 	}

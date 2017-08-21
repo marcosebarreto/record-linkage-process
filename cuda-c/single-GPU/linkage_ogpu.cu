@@ -50,13 +50,13 @@ int main(int argc, char const *argv[]) {
     int threads_per_block = atoi(argv[1]);
 
     // opening large base (base_a) and small base (base_b)
-    printf("[LOADING DATABASES ... ]\n");
+    //printf("[LOADING DATABASES ... ]\n");
     base_a = fopen(file1, "r");
-    base_b = fopen("base_1000K.bloom", "r");
+    base_b = fopen("base_10000.bloom", "r");
 
     // --------------------- OPERATIONS WITH BASE A --------------------- //
     // getting line quantity
-    printf("[GETTING NUMBER LINES FOR BASE A ... ]\n");
+    //printf("[GETTING NUMBER LINES FOR BASE A ... ]\n");
     nlines_a = get_num_of_lines(base_a);
     int *matrixA = (int *)malloc(nlines_a * NCOL * sizeof(int));
 
@@ -70,17 +70,17 @@ int main(int argc, char const *argv[]) {
     int lower_threshold = 0;
     int upper_threshold = 5;
     test = divide(matrixA, lower_threshold, upper_threshold);
-    print_matrix(test, (upper_threshold - lower_threshold));
+    //print_matrix(test, (upper_threshold - lower_threshold));
 
 
     // --------------------- OPERATIONS WITH BASE B --------------------- //
     // getting line quantity
-    printf("[GETTING NUMBER LINES FOR BASE B ... ]\n");
+    //printf("[GETTING NUMBER LINES FOR BASE B ... ]\n");
     nlines_b = get_num_of_lines(base_b);
     int *matrixB = (int *)malloc(nlines_b * NCOL * sizeof(int));
 
     // processing base_b to fill matrixB
-    printf("[PROCESSING BASE B ... ]\n");
+    //printf("[PROCESSING BASE B ... ]\n");
     process_file(base_b, matrixB);
     // print_matrix(matrixB, nlines_b);
 
@@ -97,7 +97,7 @@ int main(int argc, char const *argv[]) {
     cudaMemcpy(matrixB_d, matrixB, nlines_b * NCOL * sizeof(int), cudaMemcpyHostToDevice);
 
     // kernel operations
-    printf("[OPERATING AT KERNEL CUDA ... ]\n");
+    //printf("[OPERATING AT KERNEL CUDA ... ]\n");
     dim3 dimGrid = (int) ceil( (int) nlines_a / (int) threads_per_block);
     dim3 dimBlock = threads_per_block;
     kernel<<<dimGrid, dimBlock>>>(matrixA_d, matrixB_d, nlines_a, nlines_b);
@@ -118,7 +118,7 @@ int main(int argc, char const *argv[]) {
     t2 = omp_get_wtime();
 
     int length_problem = atoi(argv[2]);
-    printf("%d\t%f\n", (length_problem * 1000), (t2-t1));
+    printf("%d\t%f\n", (length_problem ), (t2-t1));
 
     return 0;
 }
